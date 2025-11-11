@@ -84,6 +84,15 @@ async function assertUserMatchesToken(accessToken: string, userId: string) {
 
     const profile = (await response.json()) as Record<string, unknown>;
 
+    if (!profile.email || typeof profile.email !== "string") {
+      console.error("[Quota] Tesla profile missing email", {
+        userId,
+        keys: Object.keys(profile),
+        aud: profile.aud,
+        scopes: profile.scope,
+      });
+    }
+
     const email = typeof profile.email === "string" ? profile.email.toLowerCase() : undefined;
     if (!email) {
       throw new UnauthorizedError("Tesla user profile missing email");
