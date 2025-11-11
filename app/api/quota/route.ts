@@ -27,7 +27,13 @@ class UnauthorizedError extends Error {
   }
 }
 
-async function ensureUserRow(userId: string) {
+async function ensureUserRow({
+  userId,
+  accessToken,
+}: {
+  userId: string;
+  accessToken?: string;
+}) {
   const { data: existing, error } = await supabase
     .from(TABLE_NAME)
     .select("user_id,quota")
@@ -42,6 +48,12 @@ async function ensureUserRow(userId: string) {
     return existing;
   }
 
+  if (!accessToken) {
+    throw new UnauthorizedError("Missing Authorization token for new user");
+  }
+
+  await assertUserMatchesToken(accessToken, userId);
+
   const { data: inserted, error: insertError } = await supabase
     .from(TABLE_NAME)
     .insert({ user_id: userId, quota: DEFAULT_QUOTA })
@@ -55,21 +67,14 @@ async function ensureUserRow(userId: string) {
   return inserted;
 }
 
-async function resolveUserIdFromToken(request: Request): Promise<string> {
-  const authHeader = request.headers.get("authorization");
-  if (!authHeader) {
-    throw new UnauthorizedError("Missing Authorization header");
+async function assertUserMatchesToken(accessToken: string, userId: string) {
+  if (!accessToken) {
+    throw new UnauthorizedError("Missing Authorization token");
   }
 
-  const [scheme, token] = authHeader.split(" ");
-  if (!scheme || scheme.toLowerCase() !== "bearer" || !token) {
-    throw new UnauthorizedError("Invalid Authorization header");
-  }
-
-  let profile: Record<string, unknown>;
   try {
     const response = await fetch(TESLA_USERINFO_URL, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${accessToken}` },
       cache: "no-store",
     });
 
@@ -77,7 +82,16 @@ async function resolveUserIdFromToken(request: Request): Promise<string> {
       throw new UnauthorizedError("Invalid Tesla access token");
     }
 
-    profile = (await response.json()) as Record<string, unknown>;
+    const profile = (await response.json()) as Record<string, unknown>;
+
+    const email = typeof profile.email === "string" ? profile.email.toLowerCase() : undefined;
+    if (!email) {
+      throw new UnauthorizedError("Tesla user profile missing email");
+    }
+
+    if (email !== userId.toLowerCase()) {
+      throw new UnauthorizedError("Tesla access token does not match requested userId");
+    }
   } catch (error) {
     if (error instanceof UnauthorizedError) {
       throw error;
@@ -85,81 +99,80 @@ async function resolveUserIdFromToken(request: Request): Promise<string> {
     console.error("[Quota] Tesla token verification failed", error);
     throw new UnauthorizedError("Failed to verify Tesla token");
   }
+}
 
-  const email = typeof profile.email === "string" ? profile.email.trim().toLowerCase() : undefined;
-  const sub = typeof profile.sub === "string" ? profile.sub.trim() : undefined;
-  const userId = email || sub;
-
-  if (!userId) {
-    throw new UnauthorizedError("Unable to resolve user identity");
+function extractBearerToken(headerValue: string | null) {
+  if (!headerValue) {
+    return null;
   }
-
-  return userId;
+  const [scheme, token] = headerValue.split(" ");
+  if (!scheme || scheme.toLowerCase() !== "bearer" || !token) {
+    return null;
+  }
+  return token.trim();
 }
 
 export async function GET(request: Request) {
+  const accessToken = extractBearerToken(request.headers.get("authorization"));
+  if (!accessToken) {
+    return NextResponse.json({ error: "Missing Authorization header" }, { status: 401 });
+  }
+
   const { searchParams } = new URL(request.url);
   const userId = searchParams.get("userId");
-
   if (!userId) {
-    return NextResponse.json(
-      { error: "userId query parameter is required" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "userId is required" }, { status: 400 });
   }
 
   try {
-    const row = await ensureUserRow(userId);
+    const row = await ensureUserRow({ userId, accessToken: accessToken });
 
     return NextResponse.json({
       userId: row.user_id,
       quota: row.quota,
     });
   } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
     console.error("[Quota] GET failed", error);
     return NextResponse.json({ error: "Failed to load quota" }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
-  let payload: unknown;
-  try {
-    payload = await request.json();
-  } catch (error) {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
-
-  if (!payload || typeof payload !== "object") {
-    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
-  }
-
-  const { userId, useQuota } = payload as { userId?: string; useQuota?: boolean };
-
-  if (!userId || userId.trim().length === 0) {
+  const { userId } = await request.json() as { userId?: string };
+  if (!userId || userId.length === 0) {
     return NextResponse.json({ error: "userId is required" }, { status: 400 });
   }
 
-  if (useQuota == null || typeof useQuota !== "boolean") {
-    return NextResponse.json({ error: "useQuota must be a boolean" }, { status: 400 });
-  }
-
   try {
-    await resolveUserIdFromToken(request);
+    const {data: existing, error: existingError} = await supabase
+      .from(TABLE_NAME)
+      .select("user_id, quota")
+      .eq("user_id", userId)
+      .maybeSingle();
 
-    const row = await ensureUserRow(userId);
-    if (row.quota <= 0) {
-      return NextResponse.json({
-        userId: row.user_id,
-        quota: row.quota,
-        error: "Quota exhausted",
-      }, { status: 409 });
+    if (existingError || !existing) {
+      throw new Error(existingError?.message ?? "Failed to load quota");
     }
 
-    const newQuota = row.quota - 1;
+    if (existing.quota <= 0) {
+      return NextResponse.json({ error: "Quota exhausted" }, { status: 409 });
+    }
+
+    const accessToken = extractBearerToken(request.headers.get("authorization"));
+    if (!accessToken) {
+      return NextResponse.json({ error: "Missing Authorization header" }, { status: 401 });
+    }
+
+    await assertUserMatchesToken(accessToken, userId);
+
+    const newQuota = existing.quota - 1;
     const { data, error } = await supabase
       .from(TABLE_NAME)
       .update({ quota: newQuota })
-      .eq("user_id", userId)
+      .eq("user_id", existing.user_id)
       .select("user_id,quota")
       .single();
 
