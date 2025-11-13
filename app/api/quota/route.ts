@@ -167,7 +167,10 @@ export async function POST(request: Request) {
     }
 
     if (existing.quota <= 0) {
-      return NextResponse.json({ error: "Quota exhausted" }, { status: 409 });
+      return NextResponse.json({
+        userId: existing.user_id,
+        quota: existing.quota,
+      });
     }
 
     const accessToken = extractBearerToken(request.headers.get("authorization"));
