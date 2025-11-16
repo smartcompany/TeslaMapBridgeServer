@@ -1,0 +1,14 @@
+{
+  "ios_ad": "rewarded_ad",
+  "android_ad": "rewarded_ad",
+  "ref": {
+      "ios": {
+        "rewarded_ad": "ca-app-pub-5520596727761259/7478677564",
+        "rewarded_test": "ca-app-pub-3940256099942544/1712485313"
+      },
+      "android": {
+        "rewarded_ad": "ca-app-pub-5520596727761259/9424090728",
+        "rewarded_test": "ca-app-pub-3940256099942544/5224354917"
+      }
+  }
+}

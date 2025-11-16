@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import settings from "./settings.json";
 
 export async function GET() {
   const clientId = process.env.TeslaClientId;
@@ -24,6 +25,8 @@ export async function GET() {
       clientSecret,
       purchaseMode,
       creditPacks,
+      // Static settings imported from JSON (ads etc.)
+      ...settings,
     },
     {
       headers: {
