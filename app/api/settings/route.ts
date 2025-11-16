@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 export async function GET() {
   const clientId = process.env.TeslaClientId;
   const clientSecret = process.env.TeslaClientSecret;
+  const purchaseMode = "creditPack";
 
   if (!clientId || !clientSecret) {
     return NextResponse.json(
@@ -15,6 +16,7 @@ export async function GET() {
     {
       clientId,
       clientSecret,
+      purchaseMode,
     },
     {
       headers: {
