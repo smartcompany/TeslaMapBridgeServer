@@ -4,6 +4,12 @@ export async function GET() {
   const clientId = process.env.TeslaClientId;
   const clientSecret = process.env.TeslaClientSecret;
   const purchaseMode = "creditPack";
+  const creditPacks = [
+    { productId: "com.smartcompany.teslaMapBridge.credit100", credits: 100 },
+    { productId: "com.smartcompany.teslaMapBridge.credit400", credits: 400 },
+    { productId: "com.smartcompany.teslaMapBridge.credit800", credits: 800 },
+    { productId: "com.smartcompany.teslaMapBridge.credit1000", credits: 1000 },
+  ];
 
   if (!clientId || !clientSecret) {
     return NextResponse.json(
@@ -17,6 +23,7 @@ export async function GET() {
       clientId,
       clientSecret,
       purchaseMode,
+      creditPacks,
     },
     {
       headers: {

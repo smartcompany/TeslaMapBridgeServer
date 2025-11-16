@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-const DEFAULT_QUOTA = 10;
+const DEFAULT_QUOTA = 20;
 const TABLE_NAME = "tesla_map_bridge_usage_quota";
 const TESLA_USERINFO_URL = "https://auth.tesla.com/oauth2/v3/userinfo";
 
