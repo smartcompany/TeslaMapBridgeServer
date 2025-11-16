@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-const DEFAULT_QUOTA = 20;
 const TABLE_NAME = "tesla_map_bridge_usage_quota";
 const TESLA_USERINFO_URL = "https://auth.tesla.com/oauth2/v3/userinfo";
 
@@ -25,46 +24,6 @@ class UnauthorizedError extends Error {
     super(message);
     this.name = "UnauthorizedError";
   }
-}
-
-async function ensureUserRow({
-  userId,
-  accessToken,
-}: {
-  userId: string;
-  accessToken?: string;
-}) {
-  const { data: existing, error } = await supabase
-    .from(TABLE_NAME)
-    .select("user_id,quota")
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  if (existing) {
-    return existing;
-  }
-
-  if (!accessToken) {
-    throw new UnauthorizedError("Missing Authorization token for new user");
-  }
-
-  await assertUserMatchesToken(accessToken, userId);
-
-  const { data: inserted, error: insertError } = await supabase
-    .from(TABLE_NAME)
-    .insert({ user_id: userId, quota: DEFAULT_QUOTA })
-    .select("user_id,quota")
-    .single();
-
-  if (insertError || !inserted) {
-    throw new Error(insertError?.message ?? "Failed to create quota row");
-  }
-
-  return inserted;
 }
 
 async function assertUserMatchesToken(accessToken: string, userId: string) {
@@ -121,30 +80,59 @@ function extractBearerToken(headerValue: string | null) {
   return token.trim();
 }
 
-export async function GET(request: Request) {
-  const accessToken = extractBearerToken(request.headers.get("authorization"));
-  if (!accessToken) {
-    return NextResponse.json({ error: "Missing Authorization header" }, { status: 401 });
-  }
-
-  const { searchParams } = new URL(request.url);
-  const userId = searchParams.get("userId");
-  if (!userId) {
+export async function POST(request: Request) {
+  const { userId } = await request.json() as { userId?: string };
+  if (!userId || userId.length === 0) {
     return NextResponse.json({ error: "userId is required" }, { status: 400 });
   }
 
   try {
-    const row = await ensureUserRow({ userId, accessToken: accessToken });
+    const {data: existing, error: existingError} = await supabase
+      .from(TABLE_NAME)
+      .select("user_id, quota")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (existingError || !existing) {
+      throw new Error(existingError?.message ?? "Failed to load quota");
+    }
+
+    if (existing.quota <= 0) {
+      return NextResponse.json({
+        userId: existing.user_id,
+        quota: existing.quota,
+      });
+    }
+
+    const accessToken = extractBearerToken(request.headers.get("authorization"));
+    if (!accessToken) {
+      return NextResponse.json({ error: "Missing Authorization header" }, { status: 401 });
+    }
+
+    await assertUserMatchesToken(accessToken, userId);
+
+    const newQuota = existing.quota - 1;
+    const { data, error } = await supabase
+      .from(TABLE_NAME)
+      .update({ quota: newQuota })
+      .eq("user_id", existing.user_id)
+      .select("user_id,quota")
+      .single();
+
+    if (error || !data) {
+      throw new Error(error?.message ?? "Failed to update quota");
+    }
 
     return NextResponse.json({
-      userId: row.user_id,
-      quota: row.quota,
+      userId: data.user_id,
+      quota: data.quota,
     });
   } catch (error) {
     if (error instanceof UnauthorizedError) {
       return NextResponse.json({ error: error.message }, { status: 401 });
     }
-    console.error("[Quota] GET failed", error);
-    return NextResponse.json({ error: "Failed to load quota" }, { status: 500 });
+
+    console.error("[Quota] POST failed", error);
+    return NextResponse.json({ error: "Failed to update quota" }, { status: 500 });
   }
 }
