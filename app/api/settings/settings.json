@@ -10,5 +10,9 @@
         "rewarded_ad": "ca-app-pub-5520596727761259/9424090728",
         "rewarded_test": "ca-app-pub-3940256099942544/5224354917"
       }
+  },
+  "adRewards": {
+    "rewarded_ad": 2,
+    "rewarded_test": 2
   }
 }
