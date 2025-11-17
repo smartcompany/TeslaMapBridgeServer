@@ -7,9 +7,9 @@ export async function GET() {
   const purchaseMode = "creditPack";
   const creditPacks = [
     { productId: "com.smartcompany.teslaMapBridge.credit100", credits: 100 },
-    { productId: "com.smartcompany.teslaMapBridge.credit400", credits: 500 },
-    { productId: "com.smartcompany.teslaMapBridge.credit800", credits: 1100 },
-    { productId: "com.smartcompany.teslaMapBridge.credit1000", credits: 1500 },
+    { productId: "com.smartcompany.teslaMapBridge.credit400", credits: 400 },
+    { productId: "com.smartcompany.teslaMapBridge.credit800", credits: 800 },
+    { productId: "com.smartcompany.teslaMapBridge.credit1000", credits: 1000 },
   ];
 
   if (!clientId || !clientSecret) {
