@@ -34,6 +34,7 @@ async function ensureUserRow({
   userId: string;
   accessToken?: string;
 }) {
+  console.log(`[Quota] ensureUserRow called for userId: ${userId}`);
   const { data: existing, error } = await supabase
     .from(TABLE_NAME)
     .select("user_id,quota")
@@ -41,12 +42,16 @@ async function ensureUserRow({
     .maybeSingle();
 
   if (error) {
+    console.error("[Quota] Supabase select error:", error);
     throw new Error(error.message);
   }
 
   if (existing) {
+    console.log(`[Quota] Found existing user row for ${userId}`);
     return existing;
   }
+
+  console.log(`[Quota] User row not found for ${userId}, creating new row...`);
 
   if (!accessToken) {
     throw new UnauthorizedError("Missing Authorization token for new user");
@@ -61,13 +66,16 @@ async function ensureUserRow({
     .single();
 
   if (insertError || !inserted) {
+    console.error("[Quota] Supabase insert error:", insertError);
     throw new Error(insertError?.message ?? "Failed to create quota row");
   }
 
+  console.log(`[Quota] Created new user row for ${userId}`);
   return inserted;
 }
 
 async function assertUserMatchesToken(accessToken: string, userId: string) {
+  console.log(`[Quota] Verifying token for ${userId}`);
   if (!accessToken) {
     throw new UnauthorizedError("Missing Authorization token");
   }
@@ -79,10 +87,13 @@ async function assertUserMatchesToken(accessToken: string, userId: string) {
     });
 
     if (!response.ok) {
+      console.error(`[Quota] Tesla UserInfo failed: ${response.status} ${response.statusText}`);
       throw new UnauthorizedError("Invalid Tesla access token");
     }
 
     const profile = (await response.json()) as Record<string, unknown>;
+    // ... rest of validation logic
+
 
     if (!profile.email || typeof profile.email !== "string") {
       console.error("[Quota] Tesla profile missing email", {
@@ -123,12 +134,15 @@ function extractBearerToken(headerValue: string | null) {
 
 export async function GET(request: Request) {
   const accessToken = extractBearerToken(request.headers.get("authorization"));
+  const { searchParams } = new URL(request.url);
+  const userId = searchParams.get("userId");
+
+  console.log(`[Quota] GET request received. userId: ${userId}, hasToken: ${!!accessToken}`);
+
   if (!accessToken) {
     return NextResponse.json({ error: "Missing Authorization header" }, { status: 401 });
   }
 
-  const { searchParams } = new URL(request.url);
-  const userId = searchParams.get("userId");
   if (!userId) {
     return NextResponse.json({ error: "userId is required" }, { status: 400 });
   }
@@ -141,10 +155,10 @@ export async function GET(request: Request) {
       quota: row.quota,
     });
   } catch (error) {
+    console.error("[Quota] GET handler caught error:", error);
     if (error instanceof UnauthorizedError) {
       return NextResponse.json({ error: error.message }, { status: 401 });
     }
-    console.error("[Quota] GET failed", error);
     return NextResponse.json({ error: "Failed to load quota" }, { status: 500 });
   }
 }
