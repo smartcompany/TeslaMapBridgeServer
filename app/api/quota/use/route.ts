@@ -1,10 +1,5 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import {
-  UnauthorizedError,
-  assertUserMatchesToken,
-  extractBearerToken,
-} from "../../../lib/teslaAuth";
 
 const TABLE_NAME = "tesla_map_bridge_usage_quota";
 
@@ -25,21 +20,11 @@ const supabase = createClient(supabaseUrl, supabaseKey, {
 
 export async function POST(request: Request) {
   try {
-    const accessToken = extractBearerToken(request.headers.get("authorization"));
-    if (!accessToken) {
-      return NextResponse.json(
-        { error: "Missing Authorization header" },
-        { status: 401 },
-      );
-    }
-
     const body = (await request.json()) as { userId?: string };
     const userId = body.userId?.trim().toLowerCase();
     if (!userId) {
       return NextResponse.json({ error: "userId is required" }, { status: 400 });
     }
-
-    await assertUserMatchesToken(accessToken, userId);
 
     const { data: existing, error: existingError } = await supabase
       .from(TABLE_NAME)
@@ -75,10 +60,6 @@ export async function POST(request: Request) {
       quota: data.quota,
     });
   } catch (error) {
-    if (error instanceof UnauthorizedError) {
-      return NextResponse.json({ error: error.message }, { status: 401 });
-    }
-
     console.error("[Quota] POST /use failed", error);
     return NextResponse.json({ error: "Failed to update quota" }, { status: 500 });
   }

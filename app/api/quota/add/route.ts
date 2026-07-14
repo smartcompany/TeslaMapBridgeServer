@@ -1,10 +1,5 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import {
-  UnauthorizedError,
-  assertUserMatchesToken,
-  extractBearerToken,
-} from "../../../lib/teslaAuth";
 
 const TABLE_NAME = "tesla_map_bridge_usage_quota";
 
@@ -16,13 +11,6 @@ const supabase = createClient(supabaseUrl, supabaseKey, {
 
 export async function POST(request: Request) {
   try {
-    const accessToken = extractBearerToken(request.headers.get("authorization"));
-    if (!accessToken) {
-      return NextResponse.json(
-        { error: "Missing Authorization header" },
-        { status: 401 },
-      );
-    }
     const body = (await request.json()) as { userId?: string; credits?: number };
     const userId = body.userId?.trim().toLowerCase();
     const credits = Number.isFinite(body.credits)
@@ -34,7 +22,6 @@ export async function POST(request: Request) {
     if (credits <= 0) {
       return NextResponse.json({ error: "credits must be > 0" }, { status: 400 });
     }
-    await assertUserMatchesToken(accessToken, userId);
 
     const { data: existing, error: existingError } = await supabase
       .from(TABLE_NAME)
@@ -72,9 +59,6 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ userId: data.user_id, quota: data.quota });
   } catch (error) {
-    if (error instanceof UnauthorizedError) {
-      return NextResponse.json({ error: error.message }, { status: 401 });
-    }
     console.error("[Quota] /add failed", error);
     return NextResponse.json({ error: "Failed to add quota" }, { status: 500 });
   }

@@ -1,10 +1,5 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import {
-  UnauthorizedError,
-  assertUserMatchesToken,
-  extractBearerToken,
-} from "../../../lib/teslaAuth";
 
 const TABLE_NAME = "tesla_map_bridge_usage_quota";
 const DEFAULT_QUOTA = 20;
@@ -24,13 +19,7 @@ const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: { persistSession: false },
 });
 
-async function ensureUserRow({
-  userId,
-  accessToken,
-}: {
-  userId: string;
-  accessToken?: string;
-}) {
+async function ensureUserRow(userId: string) {
   console.log(`[Quota] ensureUserRow called for userId: ${userId}`);
   const { data: existing, error } = await supabase
     .from(TABLE_NAME)
@@ -50,12 +39,6 @@ async function ensureUserRow({
 
   console.log(`[Quota] User row not found for ${userId}, creating new row...`);
 
-  if (!accessToken) {
-    throw new UnauthorizedError("Missing Authorization token for new user");
-  }
-
-  await assertUserMatchesToken(accessToken, userId);
-
   const { data: inserted, error: insertError } = await supabase
     .from(TABLE_NAME)
     .insert({ user_id: userId, quota: DEFAULT_QUOTA })
@@ -72,27 +55,17 @@ async function ensureUserRow({
 }
 
 export async function GET(request: Request) {
-  const accessToken = extractBearerToken(request.headers.get("authorization"));
   const { searchParams } = new URL(request.url);
   const userId = searchParams.get("userId")?.trim().toLowerCase() ?? null;
 
-  console.log(
-    `[Quota] GET request received. userId: ${userId}, hasToken: ${!!accessToken}`,
-  );
-
-  if (!accessToken) {
-    return NextResponse.json(
-      { error: "Missing Authorization header" },
-      { status: 401 },
-    );
-  }
+  console.log(`[Quota] GET request received. userId: ${userId}`);
 
   if (!userId) {
     return NextResponse.json({ error: "userId is required" }, { status: 400 });
   }
 
   try {
-    const row = await ensureUserRow({ userId, accessToken });
+    const row = await ensureUserRow(userId);
 
     return NextResponse.json({
       userId: row.user_id,
@@ -100,9 +73,6 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     console.error("[Quota] GET handler caught error:", error);
-    if (error instanceof UnauthorizedError) {
-      return NextResponse.json({ error: error.message }, { status: 401 });
-    }
     return NextResponse.json({ error: "Failed to load quota" }, { status: 500 });
   }
 }
