@@ -135,7 +135,7 @@ function extractBearerToken(headerValue: string | null) {
 export async function GET(request: Request) {
   const accessToken = extractBearerToken(request.headers.get("authorization"));
   const { searchParams } = new URL(request.url);
-  const userId = searchParams.get("userId");
+  const userId = searchParams.get("userId")?.trim().toLowerCase() ?? null;
 
   console.log(`[Quota] GET request received. userId: ${userId}, hasToken: ${!!accessToken}`);
 

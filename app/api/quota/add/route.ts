@@ -37,7 +37,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing Authorization header" }, { status: 401 });
     }
     const body = (await request.json()) as { userId?: string; credits?: number };
-    const userId = body.userId?.trim();
+    const userId = body.userId?.trim().toLowerCase();
     const credits = Number.isFinite(body.credits) ? Math.max(0, Math.floor(body.credits!)) : 0;
     if (!userId) {
       return NextResponse.json({ error: "userId is required" }, { status: 400 });
@@ -52,11 +52,26 @@ export async function POST(request: Request) {
       .select("user_id, quota")
       .eq("user_id", userId)
       .maybeSingle();
-    if (existingError || !existing) {
-      return NextResponse.json({ error: "Quota record not found" }, { status: 404 });
+    if (existingError) {
+      throw new Error(existingError.message);
     }
 
-    const newQuota = (existing.quota as number) + credits;
+    // GET /quota 는 레코드를 만들지만 /add 는 없으면 404였음 → 없으면 생성 후 적립
+    let currentQuota = 0;
+    if (!existing) {
+      const { data: inserted, error: insertError } = await supabase
+        .from(TABLE_NAME)
+        .insert({ user_id: userId, quota: credits })
+        .select("user_id, quota")
+        .single();
+      if (insertError || !inserted) {
+        throw new Error(insertError?.message ?? "Failed to create quota");
+      }
+      return NextResponse.json({ userId: inserted.user_id, quota: inserted.quota });
+    }
+
+    currentQuota = existing.quota as number;
+    const newQuota = currentQuota + credits;
     const { data, error } = await supabase
       .from(TABLE_NAME)
       .update({ quota: newQuota })
