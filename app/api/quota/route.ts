@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import {
+  UnauthorizedError,
+  assertUserMatchesToken,
+  extractBearerToken,
+} from "../../../lib/teslaAuth";
 
-const DEFAULT_QUOTA = 20;
 const TABLE_NAME = "tesla_map_bridge_usage_quota";
-const TESLA_USERINFO_URL = "https://auth.tesla.com/oauth2/v3/userinfo";
+const DEFAULT_QUOTA = 20;
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_KEY;
@@ -19,13 +23,6 @@ if (!supabaseKey) {
 const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: { persistSession: false },
 });
-
-class UnauthorizedError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "UnauthorizedError";
-  }
-}
 
 async function ensureUserRow({
   userId,
@@ -74,73 +71,20 @@ async function ensureUserRow({
   return inserted;
 }
 
-async function assertUserMatchesToken(accessToken: string, userId: string) {
-  console.log(`[Quota] Verifying token for ${userId}`);
-  if (!accessToken) {
-    throw new UnauthorizedError("Missing Authorization token");
-  }
-
-  try {
-    const response = await fetch(TESLA_USERINFO_URL, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      cache: "no-store",
-    });
-
-    if (!response.ok) {
-      console.error(`[Quota] Tesla UserInfo failed: ${response.status} ${response.statusText}`);
-      throw new UnauthorizedError("Invalid Tesla access token");
-    }
-
-    const profile = (await response.json()) as Record<string, unknown>;
-    // ... rest of validation logic
-
-
-    if (!profile.email || typeof profile.email !== "string") {
-      console.error("[Quota] Tesla profile missing email", {
-        userId,
-        keys: Object.keys(profile),
-        aud: profile.aud,
-        scopes: profile.scope,
-      });
-    }
-
-    const email = typeof profile.email === "string" ? profile.email.toLowerCase() : undefined;
-    if (!email) {
-      throw new UnauthorizedError("Tesla user profile missing email");
-    }
-
-    if (email !== userId.toLowerCase()) {
-      throw new UnauthorizedError("Tesla access token does not match requested userId");
-    }
-  } catch (error) {
-    if (error instanceof UnauthorizedError) {
-      throw error;
-    }
-    console.error("[Quota] Tesla token verification failed", error);
-    throw new UnauthorizedError("Failed to verify Tesla token");
-  }
-}
-
-function extractBearerToken(headerValue: string | null) {
-  if (!headerValue) {
-    return null;
-  }
-  const [scheme, token] = headerValue.split(" ");
-  if (!scheme || scheme.toLowerCase() !== "bearer" || !token) {
-    return null;
-  }
-  return token.trim();
-}
-
 export async function GET(request: Request) {
   const accessToken = extractBearerToken(request.headers.get("authorization"));
   const { searchParams } = new URL(request.url);
   const userId = searchParams.get("userId")?.trim().toLowerCase() ?? null;
 
-  console.log(`[Quota] GET request received. userId: ${userId}, hasToken: ${!!accessToken}`);
+  console.log(
+    `[Quota] GET request received. userId: ${userId}, hasToken: ${!!accessToken}`,
+  );
 
   if (!accessToken) {
-    return NextResponse.json({ error: "Missing Authorization header" }, { status: 401 });
+    return NextResponse.json(
+      { error: "Missing Authorization header" },
+      { status: 401 },
+    );
   }
 
   if (!userId) {
@@ -148,7 +92,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const row = await ensureUserRow({ userId, accessToken: accessToken });
+    const row = await ensureUserRow({ userId, accessToken });
 
     return NextResponse.json({
       userId: row.user_id,

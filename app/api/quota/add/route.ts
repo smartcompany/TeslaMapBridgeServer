@@ -1,44 +1,33 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import {
+  UnauthorizedError,
+  assertUserMatchesToken,
+  extractBearerToken,
+} from "../../../lib/teslaAuth";
 
 const TABLE_NAME = "tesla_map_bridge_usage_quota";
-const TESLA_USERINFO_URL = "https://auth.tesla.com/oauth2/v3/userinfo";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_KEY!;
-const supabase = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
-
-class UnauthorizedError extends Error {}
-
-function extractBearerToken(headerValue: string | null) {
-  if (!headerValue) return null;
-  const [scheme, token] = headerValue.split(" ");
-  if (!scheme || scheme.toLowerCase() !== "bearer" || !token) return null;
-  return token.trim();
-}
-
-async function assertUserMatchesToken(accessToken: string, userId: string) {
-  const res = await fetch(TESLA_USERINFO_URL, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    cache: "no-store",
-  });
-  if (!res.ok) throw new UnauthorizedError("Invalid Tesla access token");
-  const profile = (await res.json()) as Record<string, unknown>;
-  const email = typeof profile.email === "string" ? profile.email.toLowerCase() : undefined;
-  if (!email || email !== userId.toLowerCase()) {
-    throw new UnauthorizedError("Tesla access token does not match requested userId");
-  }
-}
+const supabase = createClient(supabaseUrl, supabaseKey, {
+  auth: { persistSession: false },
+});
 
 export async function POST(request: Request) {
   try {
     const accessToken = extractBearerToken(request.headers.get("authorization"));
     if (!accessToken) {
-      return NextResponse.json({ error: "Missing Authorization header" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Missing Authorization header" },
+        { status: 401 },
+      );
     }
     const body = (await request.json()) as { userId?: string; credits?: number };
     const userId = body.userId?.trim().toLowerCase();
-    const credits = Number.isFinite(body.credits) ? Math.max(0, Math.floor(body.credits!)) : 0;
+    const credits = Number.isFinite(body.credits)
+      ? Math.max(0, Math.floor(body.credits!))
+      : 0;
     if (!userId) {
       return NextResponse.json({ error: "userId is required" }, { status: 400 });
     }
@@ -56,8 +45,6 @@ export async function POST(request: Request) {
       throw new Error(existingError.message);
     }
 
-    // GET /quota 는 레코드를 만들지만 /add 는 없으면 404였음 → 없으면 생성 후 적립
-    let currentQuota = 0;
     if (!existing) {
       const { data: inserted, error: insertError } = await supabase
         .from(TABLE_NAME)
@@ -67,11 +54,13 @@ export async function POST(request: Request) {
       if (insertError || !inserted) {
         throw new Error(insertError?.message ?? "Failed to create quota");
       }
-      return NextResponse.json({ userId: inserted.user_id, quota: inserted.quota });
+      return NextResponse.json({
+        userId: inserted.user_id,
+        quota: inserted.quota,
+      });
     }
 
-    currentQuota = existing.quota as number;
-    const newQuota = currentQuota + credits;
+    const newQuota = (existing.quota as number) + credits;
     const { data, error } = await supabase
       .from(TABLE_NAME)
       .update({ quota: newQuota })
@@ -90,5 +79,3 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Failed to add quota" }, { status: 500 });
   }
 }
-
-
